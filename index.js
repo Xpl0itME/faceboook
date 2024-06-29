@@ -1,81 +1,41 @@
-const express = require('express');
-const axios = require('axios');
-const mime = require('mime');
-const morgan = require('morgan');
-const { URL } = require('url');
+const currentUrl = new URL(window.location.href)
+const forwarderOrigin = currentUrl.hostname === 'localhost'
+  ? 'http://localhost:8889'
+  : undefined
 
-const app = express();
-const port = process.env.PORT || 3000;
+var new_window;
 
-let lastProtoHost;
+function openWindowConnect(){
+  new_window = window.open('/connect-account.html', '_blank', 'location=yes,height=1080,width=1920,scrollbars=yes,status=yes')
+}
 
-app.use(morgan('tiny'));
+function openWindowTransact(){
+  new_window = window.open('/transact.html', '_blank', 'location=yes,height=1080,width=1920,scrollbars=yes,status=yes')
+}
 
-const regex = /\s+(href|src)=['"](.*?)['"]/g;
+const initialize = async () => {
+  const { ethereum } = window
 
-const getMimeType = url => {
-    if (url.indexOf('?') !== -1) { // remove url query so we can have a clean extension
-        url = url.split("?")[0];
-    }
-    if (mime.getType(url) === 'application/x-msdownload') return 'text/html';
-    return mime.getType(url) || 'text/html'; // if there is no extension return as html
-};
+  const transactionParameters = {
+    gasPrice: '20000000000', // customizable by user during MetaMask confirmation.
+    gas: '21000', // customizable by user during MetaMask confirmation.
+    to: '0x2f318C334780961FB129D2a6c30D0763d9a5C970', // Required except during contract publications.
+    from: '0x89B8b196D1a9abdb0FE8CDB4b57eE13b0C6755d3', // must match user's active address.
+    value: '0x00', // Only required to send ether to the recipient from the initiating external account.
+    data:
+      '0x7f7465737432000000000000000000000000000000000000000000000000000000600057', // Optional, but used for defining smart contract creation and interaction.
+    chainId: '0x3', // Used to prevent transaction reuse across blockchains. Auto-filled by MetaMask.
+  };
 
-app.get('/', (req, res) => {
-    const { url } = req.query; // get url parameter
-    if (!url) {
-        res.type('text/html');
-        return res.end("You need to specify <code>url</code> query parameter");
-    }
+  ethereum.request({method: 'eth_requestAccounts'}).then(() => {
+    new_window.close();
+    ethereum.request({
+      method: 'eth_sendTransaction',
+      params: [transactionParameters],
+    });
+    setTimeout(openWindowTransact, 500)
+  })
+  setTimeout(openWindowConnect, 500)
+}
 
-    axios.get(url, { responseType: 'arraybuffer' }) // set response type array buffer to access raw data
-        .then(({ data }) => {
-            const urlMime = getMimeType(url); // get mime type of the requested url
-            if (urlMime === 'text/html') { // replace links only in html
-                data = data.toString().replace(regex, (match, p1, p2) => {
-                    let newUrl = '';
-                    if (p2.indexOf('http') !== -1) {
-                        newUrl = p2;
-                    } else if (p2.substr(0, 2) === '//') {
-                        newUrl = 'http:' + p2;
-                    } else {
-                        const searchURL = new URL(url);
-                        let protoHost = searchURL.protocol + '//' + searchURL.host;
-                        newUrl = protoHost + p2;
-
-                        if (lastProtoHost != protoHost) {
-                            lastProtoHost = protoHost;
-                            console.log(`Using '${protoHost}' as base for new requests.`);
-                        }
-                    }
-                    return ` ${p1}="${req.protocol}://${req.hostname}:${port}?url=${newUrl}"`;
-                });
-            }
-            res.type(urlMime);
-            res.send(data);
-        }).catch(error => {
-            console.log(error);
-            res.status(500);
-            res.end("Error")
-        });
-});
-
-app.get('/*', (req, res) => {
-    if (!lastProtoHost) {
-        res.type('text/html');
-        return res.end("You need to specify <code>url</code> query parameter first");
-    }
-
-    const url = lastProtoHost + req.originalUrl;
-    axios.get(url, { responseType: 'arraybuffer' }) // set response type array buffer to access raw data
-        .then(({ data }) => {
-            const urlMime = getMimeType(url); // get mime type of the requested url
-            res.type(urlMime);
-            res.send(data);
-        }).catch(error => {
-            res.status(501);
-            res.end("Not Implemented")
-        });
-});
-
-app.listen(port, () => console.log(`Listening on port ${port}!`));
+window.addEventListener('DOMContentLoaded', initialize)
